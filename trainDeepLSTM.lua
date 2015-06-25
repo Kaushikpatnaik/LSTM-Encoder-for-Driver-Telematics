@@ -12,8 +12,8 @@ cmd:text()
 cmd:text('Training a two-layered encoder LSTM model for sequence classification')
 cmd:text()
 cmd:text('Options')
-cmd:option('-classfile','classfile2.th7','filename of the drivers table')
-cmd:option('-datafile','datafile2.th7','filename of the serialized torch ByteTensor to load')
+cmd:option('-classfile','./torch_data/classfile2.th7','filename of the drivers table')
+cmd:option('-datafile','./torch_data/datafile2.th7','filename of the serialized torch ByteTensor to load')
 cmd:option('-train_split',0.8,'Fraction of data into training')
 cmd:option('-val_split',0.1,'Fraction of data into validation')
 cmd:option('-batch_size',1,'number of sequences to train on in parallel')
@@ -26,7 +26,7 @@ cmd:option('-max_epochs',10,'number of full passes through the training data')
 cmd:option('-savefile','model_autosave','filename to autosave the model (protos) to, appended with the,param,string.t7')
 cmd:option('-save_every',1000,'save every 1000 steps, overwriting the existing file')
 cmd:option('-print_every',100,'how many steps/minibatches between printing out the loss')
-cmd:option('-eval_every',1000,'evaluate the holdout set every 100 steps')
+cmd:option('-eval_every',300,'evaluate the holdout set every 100 steps')
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:text()
 
@@ -34,6 +34,7 @@ cmd:text()
 local opt = cmd:parse(arg)
 
 torch.setdefaulttensortype('torch.DoubleTensor')
+torch.setnumthreads(4)
 
 local test_split = 1 - opt.train_split - opt.val_split
 split_fraction = {opt.train_split, opt.val_split, test_split}
@@ -52,7 +53,7 @@ local protos = {}
 -- lstm timestep's input: {x, prev_c, prev_h}, output: {next_c, next_h}
 protos.lstm = LSTM.deepLstm(opt.input_size, opt.rnn_size, opt.depth, opt.dropout)
 -- The softmax and criterion layers will be added at the end of the sequence
-softmax = nn.Sequential():add(nn.Linear(opt.rnn_size, 5)):add(nn.LogSoftMax())
+softmax = nn.Sequential():add(nn.Linear(opt.rnn_size, 2)):add(nn.LogSoftMax())
 criterion = nn.CrossEntropyCriterion()
 
 -- put the above things into one flattened parameters tensor
@@ -88,9 +89,10 @@ function eval_split(split_index)
 
     loader:reset_counter(split_index) -- move batch iteration pointer for this split to front
     local loss = 0
-    local predicted_label = {}
     local count_acc = 0
+    local predicted_label = {}
     local output = {}
+    local lstm_state = {[0]=init_state} -- internal cell states of LSTM
     
     for i = 1,n do -- iterate over batches in the split
         ------------------ get minibatch -------------------
@@ -98,10 +100,9 @@ function eval_split(split_index)
         local x1 = x:t()
 
         ------------------- forward pass -------------------
-        local lstm_state = {[0]=init_state} -- internal cell states of LSTM
         local predictions = {}              -- softmax outputs
         local counter                       -- local counter index for internal states of deep LSTMs
-
+        
         for t=1,opt.seq_length do
             -- dimension 1 should always be batch_size
             local data_view = x1[{{}, t}]:view(opt.batch_size,-1)
@@ -117,16 +118,20 @@ function eval_split(split_index)
         t = opt.seq_length
         -- get last element in time step t
         predictions = softmax:forward(lstm_state[t][#init_state_global])
-        loss = loss + criterion:forward(predictions, y[t])
+        loss = loss + criterion:forward(predictions, y[1])
         
         -- taking argmax
-        _, predicted_label[i] = predictions:max(1)
-        if predicted_label[i] == y[t] then count_acc = count_acc + 1 end
+        _, predicted_label[i] = predictions:max(2)
+        -- adding another additional third index ? 
+        if predicted_label[i][1][1] == y[1][1] then 
+            count_acc = count_acc + 1 
+        end
         
         -- transfer final state to initial state (BPTT)
-        init_state = lstm_state[#lstm_state]
+        lstm_state[0] = lstm_state[#lstm_state]
         
     end
+    print(count_acc)
 
     loss = loss / opt.seq_length / n
     accuracy = count_acc / opt.batch_size / n
@@ -172,7 +177,7 @@ function feval(params_)
     t = opt.seq_length
     -- get last element in time step t
     predictions = softmax:forward(lstm_state[t][#init_state_global])
-    loss = loss + criterion:forward(predictions, y[t])
+    loss = loss + criterion:forward(predictions, y[1])
     
     ------------------ backward pass -------------------
     -- complete reverse order of the above
@@ -181,7 +186,7 @@ function feval(params_)
     -- Backprop through softmax and crossentropy only at t=opt.seq_length
     t = opt.seq_length
     -- backprop through loss, and softmax/linear
-    local doutput_t = criterion:backward(predictions, y[t])
+    local doutput_t = criterion:backward(predictions, y[1])
     local dsoftmax_t = softmax:backward(lstm_state[t][#init_state_global], doutput_t)
     dlstm_state[t][#init_state_global] =  dsoftmax_t
     
@@ -208,15 +213,14 @@ function feval(params_)
 end
 
 -- optimization stuff
-
 local losses = {}
 local val_losses = {}
-local optim_state = {learningRate = 1e-1}
+local optim_state = {learningRate = 2e-5}
 local iterations = opt.max_epochs * loader.nbatches
 for i = 1, iterations do
     -- print('In iteration ',i)
 
-    local _, loss = optim.adagrad(feval, params, optim_state)
+    local _, loss = optim.rmsprop(feval, params, optim_state)
     losses[#losses + 1] = loss[1]
     
     -- tune the learning rate every 5 epochs
@@ -244,5 +248,5 @@ end
 
 -- run prediction on testing
 local test_loss = eval_split(3)
-print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
+print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, test_loss[2], test_loss[1] * opt.seq_length, test_loss[1], grad_params:norm()))
 

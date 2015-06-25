@@ -75,52 +75,5 @@ function dataBatchLoader:nextBatch(idx)
     return self.x_batches[start_idx], self.class_batches[start_idx]
 end
 
-
--- Split string
-function string:split(sep)
-  local sep, fields = sep, {}
-  local pattern = string.format("([^%s]+)", sep)
-  self:gsub(pattern, function(substr) fields[#fields + 1] = substr end)
-  return fields
-end
-
-function dataBatchLoader.loadTxtFile(in_txtfile, out_tensorfile)
-    local filePath = txtfile
-
-    -- Count number of rows and columns in file
-    local i = 0
-    for line in io.lines(filePath) do
-      if i == 0 then
-        COLS = #line:split(',')
-      end
-      i = i + 1
-    end
-
-    local ROWS = i
-
-    -- Read data from CSV to tensor
-    local csvFile = io.open(filePath, 'r')
-    local header = csvFile:read()
-
-    local data = torch.Tensor(ROWS, COLS)
-
-    local i = 0
-    for line in csvFile:lines('*l') do
-      i = i + 1
-      local l = line:split(',')
-      for key, val in ipairs(l) do
-        data[i][key] = val
-      end
-    end
-
-    csvFile:close()
-
-    -- Serialize tensor
-    local outputFilePath = out_tensorfile
-    torch.save(outputFilePath, data)
-
-    print(data:size())
-end
-
 return dataBatchLoader
 

@@ -2,6 +2,7 @@ require 'torch'
 require 'nn'
 require 'nngraph'
 require 'optim'
+require './torchConfig'
 local dataBatchLoader = require 'dataBatchLoader'
 local LSTM = require 'LSTM'             -- LSTM timestep and utilities
 local lstm_utils=require 'lstm_utils'
@@ -19,9 +20,9 @@ cmd:option('-val_split',0.1,'Fraction of data into validation')
 cmd:option('-batch_size',1,'number of sequences to train on in parallel')
 cmd:option('-seq_length',50,'number of timesteps to unroll to')
 cmd:option('-input_size',15,'number of dimensions of input')
-cmd:option('-rnn_size', 128,'size of LSTM internal state')
+cmd:option('-rnn_size', 256,'size of LSTM internal state')
 cmd:option('-dropout',0.5,'Droput Probability')
-cmd:option('-max_epochs',1,'number of full passes through the training data')
+cmd:option('-max_epochs',10,'number of full passes through the training data')
 cmd:option('-savefile','model_autosave','filename to autosave the model (protos) to, appended with the,param,string.t7')
 cmd:option('-save_every',1000,'save every 1000 steps, overwriting the existing file')
 cmd:option('-print_every',100,'how many steps/minibatches between printing out the loss')
@@ -31,8 +32,6 @@ cmd:text()
 
 -- parse input params
 local opt = cmd:parse(arg)
-
-torch.setdefaulttensortype('torch.DoubleTensor')
 
 local test_split = 1 - opt.train_split - opt.val_split
 split_fraction = {opt.train_split, opt.val_split, test_split}
@@ -51,7 +50,7 @@ local protos = {}
 -- lstm timestep's input: {x, prev_c, prev_h}, output: {next_c, next_h}
 protos.lstm = LSTM.lstm(opt)
 -- The softmax and criterion layers will be added at the end of the sequence
-softmax = nn.Sequential():add(nn.Linear(opt.rnn_size, 5)):add(nn.LogSoftMax())
+softmax = nn.Sequential():add(nn.Linear(opt.rnn_size, 2)):add(nn.LogSoftMax())
 criterion = nn.CrossEntropyCriterion()
 
 -- put the above things into one flattened parameters tensor
@@ -64,14 +63,6 @@ for name,proto in pairs(protos) do
     print('cloning '..name)
     clones[name] = lstm_utils.clone_model(proto, opt.seq_length, not proto.parameters)
 end
-
--- LSTM initial state (zero initially, but final state gets sent to initial state when we do BPTT)
-local initstate_c = torch.zeros(opt.batch_size, opt.rnn_size)
-local initstate_h = initstate_c:clone()
-
--- LSTM final state's backward message (dloss/dfinalstate) is 0, since it doesn't influence predictions
-local dfinalstate_c = initstate_c:clone()
-local dfinalstate_h = initstate_c:clone()
 
 -- evaluate the loss over entire validation or test set
 function eval_split(split_index)
@@ -91,7 +82,8 @@ function eval_split(split_index)
         -- fetch a batch
         local x, y = loader:nextBatch(split_index)
         local x1 = x:t()
-        
+        --print(x1:size())
+        --print(y[1])
         ------------------- forward pass -------------------
         local Datalayers = {}
         local lstm_c = {[0]=initstate_c} -- internal cell states of LSTM
@@ -106,18 +98,22 @@ function eval_split(split_index)
         --softmax and loss are only at the last time step
         t = opt.seq_length
         predictions = softmax:forward(lstm_h[t])
-        loss = loss + criterion:forward(predictions, y[t])
+        loss = loss + criterion:forward(predictions, y[1])
         _, predicted_label[i] = predictions:max(1)
-        --print('Predicted Value:  Actual Value: ', predicted_label[i], y[t])
-        if predicted_label[i] == y[t] then count_acc = count_acc + 1 end
+        --print(predicted_label[i][1])
+        --print(y[1][1])
+        if predicted_label[i][1] == y[1][1] then 
+            count_acc = count_acc + 1 
+        end
+        --print(count_acc)
         
         -- transfer final state to initial state (BPTT)
-        initstate_c:copy(lstm_c[#lstm_c])
-        initstate_h:copy(lstm_h[#lstm_h])
+        lstm_c:copy(lstm_c[#lstm_c])
+        lstm_h:copy(lstm_h[#lstm_h])
     end
 
     loss = loss / opt.seq_length / n
-    accuracy = count_acc / opt.batch_size / n
+    local accuracy = count_acc / opt.batch_size / n
     
     table.insert(output, loss)
     table.insert(output, accuracy)
@@ -125,6 +121,13 @@ function eval_split(split_index)
     return output
 end
 
+-- LSTM initial state (zero initially, but final state gets sent to initial state when we do BPTT)
+local initstate_c = torch.zeros(opt.batch_size, opt.rnn_size)
+local initstate_h = initstate_c:clone()
+
+-- LSTM final state's backward message (dloss/dfinalstate) is 0, since it doesn't influence predictions
+local dfinalstate_c = initstate_c:clone()
+local dfinalstate_h = initstate_c:clone()
 
 -- do fwd/bwd and return loss, grad_params
 function feval(params_)
@@ -136,7 +139,9 @@ function feval(params_)
     ------------------ get minibatch -------------------
     local x, y = loader:nextBatch(1)
     local x1 = x:t()
-
+    --print(x1:size())
+    --print(y[t])
+	
     ------------------- forward pass -------------------
     local Datalayers = {}
     local lstm_c = {[0]=initstate_c} -- internal cell states of LSTM
@@ -145,14 +150,14 @@ function feval(params_)
     local loss = 0
 
     for t=1,opt.seq_length do
-        Datalayers[t] = x1[{{}, t}]
+        Datalayers[t] = x1[{{}, t}]:view(opt.batch_size,-1)
         lstm_c[t], lstm_h[t] = unpack(clones.lstm[t]:forward{Datalayers[t], lstm_c[t-1], lstm_h[t-1]})
     end
-    
+
     --softmax and loss are only at the last time step
     t = opt.seq_length
     predictions = softmax:forward(lstm_h[t])
-    loss = loss + criterion:forward(predictions, y[t])
+    loss = loss + criterion:forward(predictions, y[1])
     
     ------------------ backward pass -------------------
     -- complete reverse order of the above
@@ -161,7 +166,7 @@ function feval(params_)
     local dlstm_h = {}                                  -- output values of LSTM
     
     t=opt.seq_length
-    local doutput_t = criterion:backward(predictions, y[t])
+    local doutput_t = criterion:backward(predictions, y[1])
     assert(dlstm_h[t] == nil)
     dlstm_h[t] = softmax:backward(lstm_h[t], doutput_t)
     
@@ -188,11 +193,11 @@ end
 
 local losses = {}
 local val_losses = {}
-local optim_state = {learningRate = 1e-1}
+local optim_state = {learningRate = 2e-5}
 local iterations = opt.max_epochs * loader.nbatches
 for i = 1, iterations do
 
-    local _, loss = optim.adagrad(feval, params, optim_state)
+    local _, loss = optim.rmsprop(feval, params, optim_state)
     losses[#losses + 1] = loss[1]
     
     -- tune the learning rate every 5 epochs
@@ -220,5 +225,6 @@ end
 
 -- run prediction on testing
 local test_loss = eval_split(3)
-print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
+print(test_loss)
+print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, test_loss[2], test_loss[1] * opt.seq_length, test_loss[1], grad_params:norm()))
 

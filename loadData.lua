@@ -1,5 +1,12 @@
 #!/usr/bin/env th
--- Read CSV file
+--[[
+this script reads a large csv file and converts it to torch format.
+Easier and simpler to modify than other options. Courtesy
+http://blog.aicry.com/torch7-reading-csv-into-tensor/
+--]]
+
+require 'torch'
+require './torchConfig'
 
 -- Split string
 function string:split(sep)
@@ -9,8 +16,17 @@ function string:split(sep)
   return fields
 end
 
+local cmd = torch.CmdLine()
+cmd:text()
+cmd:text('Options')
+cmd:option('-ipfilepath','./proc_data/datafile.csv','filename of the csv file processed in python')
+cmd:option('-opfilepath','./torch_data/datafile.csv','filename of the output file')
+cmd:text()
 
-local filePath = 'classfile.csv'
+-- parse input params
+local opt = cmd:parse(arg)
+
+local filePath = opt.ipfilepath
 
 -- Count number of rows and columns in file
 local i = 0
@@ -41,12 +57,5 @@ end
 csvFile:close()
 
 -- Serialize tensor
-local outputFilePath = 'train.th7'
+local outputFilePath = opt.opfilepath
 torch.save(outputFilePath, data)
-
--- Deserialize tensor object
-local restored_data = torch.load(outputFilePath)
-
--- Make test
-print(data:size())
-print(restored_data:size())
