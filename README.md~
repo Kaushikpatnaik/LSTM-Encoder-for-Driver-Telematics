@@ -11,14 +11,15 @@ Minimal feature generation steps were performed on the given data. We extracted 
 for a trip that lasted 200 secs, would be a sequence of 50 feture input vectors for our model. Also, trips lengths were shortened to nearest multiples of 200 for ease of use while processing.
 
 # Model: 
-Due to the sequential nature of the data, we used multi layered RNN/LSTMs to classify driver trips. The multi-layered LSTMs encoded the sequence information and only predicted the output at the last time step. This is know as an Encoder-Decoder architecture described in
+Due to the sequential nature of the data, we used multi layered RNN/LSTMs to classify driver trips. The multi-layered LSTMs encoded the sequence information and only predicted the outout at the last time step. This is know as an Encoder-Decoder architecture described in
 http://papers.nips.cc/paper/5346-sequence-to-sequence-learning-with-neural-networks.pdf
-. The models are thus both deep in time and deep in feature space. We restricted Backpropagation through time (BPTT) to 50 time steps for computational reasons. Input vectors were features such as acceleration, velocity, change of direction etc. The model output is a soft max probability with criterion being cross-entropy error. There is regularization in the form of dropout both in time and in between layers of the LSTM. The model is trained using Adagrad, with a decaying learning rate every 5 epochs.
+The models are thus both deep in time and deep in feature space. We restricted Backpropagation through time to 50 steps for compuational reasons. Input vectors were features such as acceleration, velocity, change of direction etc. The model output is be a soft max probability with criterion being cross-entropy error. There is regularization in the form of dropout both in time and in between levels. 
 
 # Implementation:
 The model was implemented using Torch7, with a lot of the LSTM utilities being derived from 
 https://github.com/oxford-cs-ml-2015/practical6
-. The practical showed a simple straightforward way to implement LSTM models in torch. We made changes in the code to accomodate encoder-decoder frameworks. We added code for forward and backward propagation in multi-layered LSTMs for given model, processing multi dimensional input streams, splitting dataset, dropout to the model and other minor modifications.
+which showed a simple straightforward way to implement such models. We made changes to the code to accomodate encoder decoder forward and backpropagation, modified input streams, added code for 
+splitting the dataset, added dropout to the model and other minor modifications.
 
 # Observation:
 For a small sample subset provided in this repository we see that a 2 layer LSTM encoder classification approach achieves 89% accuracy without much feature engineering. Similar accuracies were
