@@ -4,7 +4,6 @@ require 'nngraph'
 require 'optim'
 local dataBatchLoader = require 'dataBatchLoader'
 local LSTM = require 'LSTM'             -- LSTM timestep and utilities
--- require 'Datalayer'                     -- class name is Datalayer (not namespaced)
 local lstm_utils=require 'lstm_utils'
 
 
@@ -13,21 +12,20 @@ cmd:text()
 cmd:text('Training a two-layered encoder LSTM model for sequence classification')
 cmd:text()
 cmd:text('Options')
-cmd:option('-classfile','classfile2.th7','filename of the drivers table')
-cmd:option('-datafile','datafile2.th7','filename of the serialized torch ByteTensor to load')
+cmd:option('-classfile','./torch_data/classfile2.th7','filename of the drivers table')
+cmd:option('-datafile','./torch_data/datafile2.th7','filename of the serialized torch ByteTensor to load')
 cmd:option('-train_split',0.8,'Fraction of data into training')
 cmd:option('-val_split',0.1,'Fraction of data into validation')
 cmd:option('-batch_size',1,'number of sequences to train on in parallel')
 cmd:option('-seq_length',50,'number of timesteps to unroll to')
 cmd:option('-input_size',15,'number of dimensions of input')
 cmd:option('-rnn_size', 128,'size of LSTM internal state')
-cmd:option('-depth',1,'Number of LSTM layers stacked on top of each other')
 cmd:option('-dropout',0.5,'Droput Probability')
-cmd:option('-max_epochs',10,'number of full passes through the training data')
+cmd:option('-max_epochs',1,'number of full passes through the training data')
 cmd:option('-savefile','model_autosave','filename to autosave the model (protos) to, appended with the,param,string.t7')
 cmd:option('-save_every',1000,'save every 1000 steps, overwriting the existing file')
 cmd:option('-print_every',100,'how many steps/minibatches between printing out the loss')
-cmd:option('-eval_every',1000,'evaluate the holdout set every 100 steps')
+cmd:option('-eval_every',1000,'evaluate the holdout set every ')
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:text()
 
@@ -75,6 +73,58 @@ local initstate_h = initstate_c:clone()
 local dfinalstate_c = initstate_c:clone()
 local dfinalstate_h = initstate_c:clone()
 
+-- evaluate the loss over entire validation or test set
+function eval_split(split_index)
+    -- split index 2 is validation set
+    -- split index 3 is test set
+    
+    print('evaluating loss over Data ' .. split_index)
+    local n = loader.split_batches[split_index]
+
+    loader:reset_counter(split_index) -- move batch iteration pointer for this split to front
+    local loss = 0
+    local predicted_label = {}
+    local count_acc = 0
+    local output = {}
+    
+    for i = 1,n do -- iterate over batches in the split
+        -- fetch a batch
+        local x, y = loader:nextBatch(split_index)
+        local x1 = x:t()
+        
+        ------------------- forward pass -------------------
+        local Datalayers = {}
+        local lstm_c = {[0]=initstate_c} -- internal cell states of LSTM
+        local lstm_h = {[0]=initstate_h} -- output values of LSTM
+        local predictions = {}           -- softmax outputs
+
+        for t=1,opt.seq_length do
+            Datalayers[t] = x1[{{}, t}]
+            lstm_c[t], lstm_h[t] = unpack(clones.lstm[t]:forward{Datalayers[t], lstm_c[t-1], lstm_h[t-1]})
+        end
+        
+        --softmax and loss are only at the last time step
+        t = opt.seq_length
+        predictions = softmax:forward(lstm_h[t])
+        loss = loss + criterion:forward(predictions, y[t])
+        _, predicted_label[i] = predictions:max(1)
+        --print('Predicted Value:  Actual Value: ', predicted_label[i], y[t])
+        if predicted_label[i] == y[t] then count_acc = count_acc + 1 end
+        
+        -- transfer final state to initial state (BPTT)
+        initstate_c:copy(lstm_c[#lstm_c])
+        initstate_h:copy(lstm_h[#lstm_h])
+    end
+
+    loss = loss / opt.seq_length / n
+    accuracy = count_acc / opt.batch_size / n
+    
+    table.insert(output, loss)
+    table.insert(output, accuracy)
+    
+    return output
+end
+
 
 -- do fwd/bwd and return loss, grad_params
 function feval(params_)
@@ -85,13 +135,8 @@ function feval(params_)
     
     ------------------ get minibatch -------------------
     local x, y = loader:nextBatch(1)
-    -- print(type(x))
-    --print('Size of input data %f', x:size())
-    -- local x1 = x:view(opt.seq_length, opt.batch_size, -1)
     local x1 = x:t()
-    --print(x1:size())
-    --print(y:size())
-    
+
     ------------------- forward pass -------------------
     local Datalayers = {}
     local lstm_c = {[0]=initstate_c} -- internal cell states of LSTM
@@ -119,7 +164,6 @@ function feval(params_)
     local doutput_t = criterion:backward(predictions, y[t])
     assert(dlstm_h[t] == nil)
     dlstm_h[t] = softmax:backward(lstm_h[t], doutput_t)
-    --print('Done with 1st backprop in the final time step')
     
     for t=opt.seq_length,1,-1 do
         -- backprop through LSTM timestep
@@ -137,8 +181,6 @@ function feval(params_)
     -- clip gradient element-wise
     grad_params:clamp(-5, 5)
 
-    --print('one iteration done!')
-
     return loss, grad_params
 end
 
@@ -149,18 +191,20 @@ local val_losses = {}
 local optim_state = {learningRate = 1e-1}
 local iterations = opt.max_epochs * loader.nbatches
 for i = 1, iterations do
-    -- print('In iteration ',i)
 
     local _, loss = optim.adagrad(feval, params, optim_state)
     losses[#losses + 1] = loss[1]
     
-    -- tune the learning rate 
+    -- tune the learning rate every 5 epochs
+    if i % (5*loader.nbatches) == 0 then
+        optim_state.learningRate = optim_state.learningRate * 0.95
+    end
     
-    
+    -- Print statistics in valuation set
     if i % opt.eval_every == 0 then
-        --local val_loss = evalValLoss(2)
-        -- val_losses[i] = val_loss
-        -- print(string.format("iteration %4d, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss, val_loss / opt.seq_length, grad_params:norm()))
+        local val_loss = eval_split(2)
+        val_losses[i] = val_loss
+        print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
     end
 
     if i % opt.save_every == 0 then
@@ -175,5 +219,6 @@ for i = 1, iterations do
 end
 
 -- run prediction on testing
-
+local test_loss = eval_split(3)
+print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
 

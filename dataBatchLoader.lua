@@ -58,6 +58,10 @@ function dataBatchLoader.create(tensor_datafile, tensor_classfile, batch_size, s
     return self
 end
 
+function dataBatchLoader:reset_counter(idx)
+    self.current_batch[idx] = 0
+end
+
 function dataBatchLoader:nextBatch(idx)
     -- idx 1 is training, idx 2 is val, idx 3 is testing
     

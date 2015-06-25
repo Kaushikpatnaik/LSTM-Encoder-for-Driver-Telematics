@@ -10,7 +10,7 @@ function string:split(sep)
 end
 
 
-local filePath = 'datafile.csv'
+local filePath = 'classfile.csv'
 
 -- Count number of rows and columns in file
 local i = 0

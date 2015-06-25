@@ -4,7 +4,6 @@ require 'nngraph'
 require 'optim'
 local dataBatchLoader = require 'dataBatchLoader'
 local LSTM = require 'LSTM'             -- LSTM timestep and utilities
-require 'Mapping'                     -- class name is Datalayer (not namespaced)
 local lstm_utils=require 'lstm_utils'
 
 
@@ -79,6 +78,66 @@ local init_state = clone_list(init_state_global)
 -- LSTM final state's backward message (dloss/dfinalstate) is 0, since it doesn't influence predictions
 local dfinal_state = clone_list(init_state_global, true)
 
+-- evaluate the loss over entire validation or test set
+function eval_split(split_index)
+    -- split index 2 is validation set
+    -- split index 3 is test set
+    
+    print('evaluating loss over Data Split' .. split_index)
+    local n = loader.split_batches[split_index]
+
+    loader:reset_counter(split_index) -- move batch iteration pointer for this split to front
+    local loss = 0
+    local predicted_label = {}
+    local count_acc = 0
+    local output = {}
+    
+    for i = 1,n do -- iterate over batches in the split
+        ------------------ get minibatch -------------------
+        local x, y = loader:nextBatch(split_index)
+        local x1 = x:t()
+
+        ------------------- forward pass -------------------
+        local lstm_state = {[0]=init_state} -- internal cell states of LSTM
+        local predictions = {}              -- softmax outputs
+        local counter                       -- local counter index for internal states of deep LSTMs
+
+        for t=1,opt.seq_length do
+            -- dimension 1 should always be batch_size
+            local data_view = x1[{{}, t}]:view(opt.batch_size,-1)
+            local temp_state = clones.lstm[t]:forward{data_view, unpack(lstm_state[t-1])}
+            -- insert parameters sequentially
+            lstm_state[t] = {}
+            for k=1,#init_state_global do
+                table.insert(lstm_state[t], temp_state[k])
+            end
+        end
+        
+        --softmax and loss are only at the last time step
+        t = opt.seq_length
+        -- get last element in time step t
+        predictions = softmax:forward(lstm_state[t][#init_state_global])
+        loss = loss + criterion:forward(predictions, y[t])
+        
+        -- taking argmax
+        _, predicted_label[i] = predictions:max(1)
+        if predicted_label[i] == y[t] then count_acc = count_acc + 1 end
+        
+        -- transfer final state to initial state (BPTT)
+        init_state = lstm_state[#lstm_state]
+        
+    end
+
+    loss = loss / opt.seq_length / n
+    accuracy = count_acc / opt.batch_size / n
+    
+    table.insert(output, loss)
+    table.insert(output, accuracy)
+    
+    return output
+end
+
+
 -- do fwd/bwd and return loss, grad_params
 function feval(params_)
     if params_ ~= params then
@@ -88,9 +147,7 @@ function feval(params_)
     
     ------------------ get minibatch -------------------
     local x, y = loader:nextBatch(1)
-    --print('Size of input data %f', x:size())
     local x1 = x:t()
-    --print(x1:size())
 
     ------------------- forward pass -------------------
     local lstm_state = {[0]=init_state} -- internal cell states of LSTM
@@ -147,8 +204,6 @@ function feval(params_)
     -- clip gradient element-wise
     grad_params:clamp(-5, 5)
 
-    --print('one iteration done!')
-
     return loss, grad_params
 end
 
@@ -164,13 +219,16 @@ for i = 1, iterations do
     local _, loss = optim.adagrad(feval, params, optim_state)
     losses[#losses + 1] = loss[1]
     
-    -- tune the learning rate 
+    -- tune the learning rate every 5 epochs
+    if i % (5*loader.nbatches) == 0 then
+        optim_state.learningRate = optim_state.learningRate * 0.95
+    end
     
-    
+    -- Print statistics in valuation set
     if i % opt.eval_every == 0 then
-        --local val_loss = evalValLoss(2)
-        -- val_losses[i] = val_loss
-        -- print(string.format("iteration %4d, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss, val_loss / opt.seq_length, grad_params:norm()))
+        local val_loss = eval_split(2)
+        val_losses[i] = val_loss
+        print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
     end
 
     if i % opt.save_every == 0 then
@@ -185,5 +243,6 @@ for i = 1, iterations do
 end
 
 -- run prediction on testing
-
+local test_loss = eval_split(3)
+print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
 
