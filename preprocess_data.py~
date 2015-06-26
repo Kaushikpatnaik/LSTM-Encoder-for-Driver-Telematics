@@ -116,11 +116,8 @@ if __name__ == "__main__":
     c2 = Counter(classData)
     list_class = c2.keys()
     with open(ROOTDIR+"proc_data/classfile.csv","w") as filename:
-        for j in range(row):
-	    if list_class.index(classData[j]) == 0:
-                filename.write(str(1))
-            else:
-                filename.write(str(2))		
+        for j in range(row):		
+            filename.write(str(list_class.index(classData[j])+1))
             filename.write("\n")
 
     # write out the sequence

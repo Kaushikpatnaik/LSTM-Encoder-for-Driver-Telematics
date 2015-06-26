@@ -34,6 +34,9 @@ cmd:text()
 -- parse input params
 local opt = cmd:parse(arg)
 
+torch.setdefaulttensortype('torch.DoubleTensor')
+torch.setnumthreads(4)
+
 local test_split = 1 - opt.train_split - opt.val_split
 split_fraction = {opt.train_split, opt.val_split, test_split}
 
