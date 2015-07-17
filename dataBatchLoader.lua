@@ -118,7 +118,7 @@ function dataBatchLoader:nextBatchCrossVal(cross_idx, idx)
     -- idx: is train, val, test index
     -- we know the start position and number of batches for train, val and test
     
-    local start_idx = {((cross_idx+1)%5)*self.cTrain+1,(cross_idx-1)*self.cTrain+1} 
+    local start_idx = {((cross_idx)%5)*self.cTrain+1,(cross_idx-1)*self.cTrain+1} 
 
     -- idx 1 is training, idx 2 is val, idx 3 is testing
     -- current idx under each fold

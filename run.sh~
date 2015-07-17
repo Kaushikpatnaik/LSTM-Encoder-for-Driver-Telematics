@@ -1,0 +1,9 @@
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_3609.csv -datafile ./proc_data/datafile_3609.csv -opfile opfile_3609.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_2.csv -datafile ./proc_data/datafile_2.csv -opfile opfile_2.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_3.csv -datafile ./proc_data/datafile_3.csv -opfile opfile_3.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_10.csv -datafile ./proc_data/datafile_10.csv -opfile opfile_10.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_11.csv -datafile ./proc_data/datafile_11.csv -opfile opfile_11.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_12.csv -datafile ./proc_data/datafile_12.csv -opfile opfile_12.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_13.csv -datafile ./proc_data/datafile_13.csv -opfile opfile_13.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_14.csv -datafile ./proc_data/datafile_14.csv -opfile opfile_14.csv
+th trainDeepLSTM.lua -classfile ./proc_data/classfile_15.csv -datafile ./proc_data/datafile_15.csv -opfile opfile_15.csv

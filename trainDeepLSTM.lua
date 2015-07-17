@@ -2,11 +2,7 @@ require 'torch'
 require 'nn'
 require 'nngraph'
 require 'optim'
-<<<<<<< HEAD
 require 'csvigo'
-=======
-require './torchConfig'
->>>>>>> 172bcffa4abbb1d46f487b7fac6853ebd9598056
 local dataBatchLoader = require 'dataBatchLoader'
 local LSTM = require 'LSTM'             -- LSTM timestep and utilities
 local lstm_utils=require 'lstm_utils'
@@ -25,13 +21,13 @@ cmd:option('-val_split',0.1,'Fraction of data into validation')
 cmd:option('-batch_size',1,'number of sequences to train on in parallel')
 cmd:option('-seq_length',50,'number of timesteps to unroll to')
 cmd:option('-input_size',15,'number of dimensions of input')
-cmd:option('-rnn_size',256,'size of LSTM internal state')
+cmd:option('-rnn_size',128,'size of LSTM internal state')
 cmd:option('-depth',2,'Number of LSTM layers stacked on top of each other')
-cmd:option('-dropout',0.5,'Droput Probability')
-cmd:option('-max_epochs',1,'number of full passes through the training data')
+cmd:option('-dropout',0,'Droput Probability')
+cmd:option('-max_epochs',10,'number of full passes through the training data')
 cmd:option('-savefile','model_autosave','filename to autosave the model (protos) to, appended with the,param,string.t7')
 cmd:option('-save_every',10000,'save every 1000 steps, overwriting the existing file')
-cmd:option('-print_every',200,'how many steps/minibatches between printing out the loss')
+cmd:option('-print_every',1000,'how many steps/minibatches between printing out the loss')
 cmd:option('-eval_every',1000,'evaluate the holdout set every 100 steps')
 cmd:option('-seed',123,'torch manual random number generator seed')
 cmd:option('-gpuid',-1,'which gpu to use. -1 == CPU usage')
@@ -40,11 +36,9 @@ cmd:text()
 -- parse input params
 local opt = cmd:parse(arg)
 
-<<<<<<< HEAD
 torch.setdefaulttensortype('torch.FloatTensor')
+torch.setnumthreads(4)
 
-=======
->>>>>>> 172bcffa4abbb1d46f487b7fac6853ebd9598056
 local test_split = 1 - opt.train_split - opt.val_split
 split_fraction = {opt.train_split, opt.val_split, test_split}
 
@@ -281,12 +275,13 @@ while kfold <= 5 do
 		optim_state.learningRate = optim_state.learningRate * 0.95
 	    end
 	    
-	    -- Print statistics in valuation set
+	    --[[ Print statistics in valuation set
 	    if i % opt.eval_every == 0 then
 		local val_loss = eval_split(kfold,2)
 		val_losses[i] = val_loss
 		print(string.format("iteration %4d, accuracy = %6.8f, loss = %6.8f, loss/seq_len = %6.8f, gradnorm = %6.4e", i, val_loss[2], val_loss[1] * opt.seq_length, val_loss[1], grad_params:norm()))
 	    end
+        ]]--
 
 	    if i % opt.save_every == 0 then
 		torch.save(opt.savefile, protos)
@@ -309,11 +304,4 @@ while kfold <= 5 do
     kfold = kfold + 1
 end
 
-<<<<<<< HEAD
 csvigo.save(opt.opfile,final_pred,',','raw')
-=======
--- run prediction on testing
-local test_loss = eval_split(3)
-print(string.format("accuracy = %f, loss = %6.8f, loss/seq_len = %6.8f", test_loss[2], test_loss[1] * opt.seq_length, test_loss[1]))
-
->>>>>>> 172bcffa4abbb1d46f487b7fac6853ebd9598056
